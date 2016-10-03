@@ -1,9 +1,9 @@
 # CS430P2
 Second Project for Computer Graphics Course
 
-NOTE: If you receive an error during compilation with regards to the math library (sqrt) and are using Linux, you will need to append -lm to the compiler command in the makefile as follows:
+NOTE: In order to use the math library, Linux requires -lm be appended to the compile command, if you are unable to compile it, try removing it from the command in the makefile as follows: 
 
-gcc raycast.c -o raycast -lm
+gcc raycast.c -o raycast
 
 Otherwise, simply call make to compile, then run program by calling:
 ./raycast width height input.json output.ppm
