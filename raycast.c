@@ -13,13 +13,7 @@
 #include <ctype.h>
 //STRUCTURES
 // Plymorphism in C
-  
-typedef struct {
-  double width;
-  double height;
-}Camera;
-
-typedef struct {
+typedef struct Object{
   int type; // 0 = sphere, 1 = plane
   double color[3];
   double position[3];
@@ -32,6 +26,11 @@ typedef struct {
     } plane;
   };
 } Object;
+
+typedef struct Camera{
+  double width;
+  double height;
+} Camera;
 //PROTOTYPE DECLARATIONS
 
 int next_c(FILE* json);
@@ -46,7 +45,7 @@ double next_number(FILE* json);
 
 double* next_vector(FILE* json);
 
-void read_scene(char* filename, Camera camera, Object** objects);
+void read_scene(char* filename, Camera* camera, Object** objects);
 
 double sqr(double v);
 
@@ -59,29 +58,9 @@ int line = 1;
 int main(int argc, char *argv[]) {
     Object** objects;
     objects = malloc(sizeof(Object*)*128);
-    Camera camera;
+    Camera* camera;
+    camera = (Camera *)malloc(sizeof(Camera));
     read_scene(argv[1], camera, objects);
-    printf("Made it  here.\n");
-    printf("Camera width: %f.\n", camera.width);
-    printf("Camera height: %f.\n", camera.height);
-    int k = 0;
-    while(objects[k] != 0){
-      if(objects[k]->type == 0){
-        printf("Sphere color: [%f, %f, %f].\n", objects[k]->color[0], objects[k]->color[1], objects[k]->color[2]);
-        printf("Sphere position: [%f, %f, %f].\n", objects[k]->position[0], objects[k]->position[1], objects[k]->position[2]);
-        printf("Sphere radius: %f.\n", objects[k]->sphere.radius);
-      }
-      else if(objects[k]->type == 0){
-        printf("Plane color: [%f, %f, %f].\n", objects[k]->color[0], objects[k]->color[1], objects[k]->color[2]);
-        printf("Plane position: [%f, %f, %f].\n", objects[k]->position[0], objects[k]->position[1], objects[k]->position[2]);
-        printf("Plane normal: [%f, %f, %f].\n", objects[k]->plane.normal[0], objects[k]->plane.normal[1], objects[k]->plane.normal[2]);
-      }
-      else{
-        printf("Unknown entry.\n");
-      }
-      k++;
-    }
-    printf("Finished printing objects.\n");
     //generate_scene();
     return EXIT_SUCCESS;
 }
@@ -181,7 +160,7 @@ double* next_vector(FILE* json) {
   return v;
 }
 
-void read_scene(char* filename, Camera camera, Object** objects) {
+void read_scene(char* filename, Camera* camera, Object** objects) {
   int c;
   int current_item = -1; //for tracking the current object in the Object array
   int current_type; //for tracking the current object we are reading from the json list
@@ -214,8 +193,8 @@ void read_scene(char* filename, Camera camera, Object** objects) {
       // Parse the object
       char* key = next_string(json);
       if (strcmp(key, "type") != 0) {
-    fprintf(stderr, "Error: Expected \"type\" key on line number %d.\n", line);
-    exit(1);
+        fprintf(stderr, "Error: Expected \"type\" key on line number %d.\n", line);
+        exit(1);
       }
 
       skip_ws(json);
@@ -227,24 +206,17 @@ void read_scene(char* filename, Camera camera, Object** objects) {
       char* value = next_string(json);
 
       if (strcmp(value, "camera") == 0) {
-        printf("Current object: camera\n");
-        if(camera.width > 0.001 || camera.height > 0.001){
-          fprintf(stderr, "Width %f, height %f\n", camera.width, camera.height);
-          fprintf(stderr, "Error: Second camera object in json on line number %d.\n", line);
-          exit(1);
-        }
         current_type = 0;
       } 
       else if (strcmp(value, "sphere") == 0) {
-        printf("Current object: sphere\n");
         current_item++;
         objects[current_item] = malloc(sizeof(Object));
         objects[current_item]->type = 0;
         current_type = 1;
       } 
       else if (strcmp(value, "plane") == 0) {
-        printf("Current object: plane\n");
         current_item++;
+        objects[current_item] = malloc(sizeof(Object));
         objects[current_item]->type = 1;
         current_type = 2;
       } 
@@ -270,15 +242,8 @@ void read_scene(char* filename, Camera camera, Object** objects) {
           expect_c(json, ':');
           skip_ws(json);
           if (strcmp(key, "width") == 0){
-            printf("Read type: width\n");
             if(current_type == 0){  //only camera has width
-              if(camera.width < 0.001){ //makes sure we don't have a pre-existing camera
-                camera.width = next_number(json);  
-              }
-              else{
-                fprintf(stderr, "Error: Second camera width value detected on line number %d.\n", line);
-                exit(1);
-              }
+              camera->width = next_number(json);
             }
             else{
               fprintf(stderr, "Error: Current object type has width value on line number %d.\n", line);
@@ -286,15 +251,8 @@ void read_scene(char* filename, Camera camera, Object** objects) {
             }
           }
           else if(strcmp(key, "height") == 0){
-            printf("Read type: height\n");
             if(current_type == 0){  //only camera has height
-              if(camera.height < 0.001){ //makes sure we don't have a pre-existing camera
-                camera.height = next_number(json);  
-              }
-              else{
-                fprintf(stderr, "Error: Second camera height value detected on line number %d.\n", line);
-                exit(1);
-              }
+              camera->  height = next_number(json);
             }
             else{
               fprintf(stderr, "Error: Current object type has height value on line number %d.\n", line);
@@ -302,15 +260,8 @@ void read_scene(char* filename, Camera camera, Object** objects) {
             }
           }
           else if(strcmp(key, "radius") == 0){
-            printf("Read type: radius\n");
             if(current_type == 1){  //only spheres have radius
-              if(objects[current_item]->sphere.radius == 0){ //makes sure we don't have a pre-existing radius
-                objects[current_item]->sphere.radius = next_number(json);  
-              }
-              else{
-                fprintf(stderr, "Error: Second radius found for current object! Detected on line number %d.\n", line);
-                exit(1);  
-              }
+              objects[current_item]->sphere.radius = next_number(json);
             }
             else{
               fprintf(stderr, "Error: Current object type cannot have radius value! Detected on line number %d.\n", line);
@@ -318,18 +269,11 @@ void read_scene(char* filename, Camera camera, Object** objects) {
             }
           }     
           else if(strcmp(key, "color") == 0){
-            printf("Read type: color\n");
             if(current_type == 1 || current_type == 2){  //only spheres and planes have color
-              if(objects[current_item]->color == 0){ //makes sure we don't have a pre-existing camera
                 double* vector = next_vector(json);
                 objects[current_item]->color[0] = (*vector++);
                 objects[current_item]->color[1] = (*vector++);
-                objects[current_item]->color[2] = (*vector++);  
-              }
-              else{
-                fprintf(stderr, "Error: Second object color value detected on line number %d.\n", line);
-                exit(1);
-              }
+                objects[current_item]->color[2] = (*vector++); 
             }
             else{
               fprintf(stderr, "Error: Camera type has color value on line number %d.\n", line);
@@ -337,18 +281,11 @@ void read_scene(char* filename, Camera camera, Object** objects) {
             }
           } 
           else if(strcmp(key, "position") == 0){
-            printf("Read type: position\n");
             if(current_type == 1 || current_type == 2){  //only spheres and planes have position
-              if(objects[current_item]->position == 0){ //makes sure we don't have a pre-existing camera
-                double* vector = next_vector(json);
-                objects[current_item]->position[0] = (*vector++);
-                objects[current_item]->position[1] = (*vector++);
-                objects[current_item]->position[2] = (*vector++);  
-              }
-              else{
-                fprintf(stderr, "Error: Second object position value detected on line number %d.\n", line);
-                exit(1);
-              }
+              double* vector = next_vector(json);
+              objects[current_item]->position[0] = (*vector++);
+              objects[current_item]->position[1] = (*vector++);
+              objects[current_item]->position[2] = (*vector++);  
             }
             else{
               fprintf(stderr, "Error: Camera type has position value on line number %d.\n", line);
@@ -356,18 +293,11 @@ void read_scene(char* filename, Camera camera, Object** objects) {
             }
           } 
           else if(strcmp(key, "normal") == 0){
-            printf("Read type: normal\n");
             if(current_type == 2){  //only planes have normal
-              if(objects[current_item]->plane.normal == 0){ //makes sure we don't have a pre-existing camera
-                double* vector = next_vector(json);
-                objects[current_item]->plane.normal[0] = (*vector++);
-                objects[current_item]->plane.normal[1] = (*vector++);
-                objects[current_item]->plane.normal[2] = (*vector++);    
-              }
-              else{
-                fprintf(stderr, "Error: Second normal value detected on line number %d.\n", line);
-                exit(1);
-              }
+              double* vector = next_vector(json);
+              objects[current_item]->plane.normal[0] = (*vector++);
+              objects[current_item]->plane.normal[1] = (*vector++);
+              objects[current_item]->plane.normal[2] = (*vector++);  
             }
             else{
               fprintf(stderr, "Error: Only planes have normal values on line number %d.\n", line);
