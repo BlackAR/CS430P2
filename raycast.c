@@ -31,6 +31,10 @@ typedef struct Camera{
   double width;
   double height;
 } Camera;
+
+typedef struct Pixel{
+  unsigned char r, b, g;
+}Pixel;
 //PROTOTYPE DECLARATIONS
 
 int next_c(FILE* json);
@@ -53,15 +57,23 @@ void normalize(double* v);
 
 double sphere_intersection(double* Ro, double* Rd, double* C, double r);
 
+void generate_scene(Camera* camera, Object** objects, Pixel* buffer);
+
+void write_p3(Pixel *buffer, FILE *output_file, int width, int height, int max_color);
+
 int line = 1;
 
 int main(int argc, char *argv[]) {
-    Object** objects;
+    Object **objects;
     objects = malloc(sizeof(Object*)*128);
-    Camera* camera;
+    Camera *camera;
     camera = (Camera *)malloc(sizeof(Camera));
+    Pixel *buffer; 
+    buffer = (Pixel *)malloc(100*100*sizeof(Pixel));
     read_scene(argv[1], camera, objects);
-    //generate_scene();
+    generate_scene(camera, objects, buffer);
+    FILE* output_file = fopen("temp.ppm", "w");
+    write_p3(buffer, output_file, 100, 100, 255);
     return EXIT_SUCCESS;
 }
 
@@ -271,9 +283,11 @@ void read_scene(char* filename, Camera* camera, Object** objects) {
           else if(strcmp(key, "color") == 0){
             if(current_type == 1 || current_type == 2){  //only spheres and planes have color
                 double* vector = next_vector(json);
-                objects[current_item]->color[0] = (*vector++);
-                objects[current_item]->color[1] = (*vector++);
-                objects[current_item]->color[2] = (*vector++); 
+                objects[current_item]->color[0] = (*vector);
+                vector++;
+                objects[current_item]->color[1] = (*vector);
+                vector++;
+                objects[current_item]->color[2] = (*vector); 
             }
             else{
               fprintf(stderr, "Error: Camera type has color value on line number %d.\n", line);
@@ -414,50 +428,110 @@ double sphere_intersection(double* Ro, double* Rd, double* C, double r) {
   return -1;
 }
 
-void generate_scene(Camera camera, Object** objects){
-    //write these objects to a ppm image
-    int w = 400;
-    int h = 400;
-    double M = camera.height;
-    double N = camera.width;
-    double pixheight = h / M;
-          double pixwidth = w / N;
-          for (int y = 0; y < M; y += 1) {
-            for (int x = 0; x < N; x += 1) {
-              double Ro[3] = {0, 0, 0};
-              // Rd = normalize(P - Ro)
-              double Rd[3] = {
-                0 - (w/2) + pixwidth * (x + 0.5),
-                0 - (h/2) + pixheight * (y + 0.5),
-                1
-              };
-              normalize(Rd);
+double plane_intersection(double* Ro, double* Rd, double* P, double* N) {
+  // Step 1. Find the equation for the object you are
+  // interested in..  (e.g., plNW)
+  //
+  // Ax + By + Cz + D = 0 
+  //
+  // Step 2. Parameterize the equation with a center point
+  // if needed
+  //
+  // Nx(x-Px) + Ny(y-Py) + Nz(z-Pz) = 0
+  //
+  // Step 3. Substitute the eq for a ray into our object
+  // equation.
+  //
+  // Nx(Rox + t*Rdx - Px) + Ny(Roy + t*Rdy - Py) + Nz(Roz + t*Rdz - Pz) = 0
+  //
+  // Step 4. Solve for t.
+  //
+  // Step 4a. Rewrite the equation (flatten).
+  //
+  // NxRox + t*Nx*Rdx - NxPx + NyRoy + t*Ny*Rdy - NyPy + NzRoz + t*Nz*Rdz - NzPz = 0
+  // 
+  // 
+  //
+  // Steb 4b. Rewrite the equation in terms of t.
+  //
+  // t(Nx*Rdx + Ny*Rdy + Nz*Rdz) = Nx*Px + Ny*Py + Nz*Pz - Nx*Rox - Ny*Roy - Nz*Roz
+  //
+  // t = (NxPx + NyPy + NzPz - NxRox - NyRoy - NzRoz)/(Nx*Rdx + Ny*Rdy + Nz*Rdz) 
+  //
+  
+  double t = (N[0]*P[0] + N[1]*P[1] + N[2]*P[2] - N[0]*Ro[0] - N[1]*Ro[1] - N[2]*Ro[2])/(N[0]*Rd[0] + N[1]*Rd[1] + N[2]*Rd[2]); 
+  if (t > 0) return t;
 
-              double best_t = INFINITY;
-              for (int i=0; objects[i] != 0; i += 1) {
-            double t = 0;
-
-            switch(objects[i]->type) {
-            case 0:
-              t = sphere_intersection(Ro, Rd,
-                            objects[i]->position,
-                            objects[i]->sphere.radius);
-              break;
-            case 1:
-            default:
-              // Horrible error
-              exit(1);
-            }
-            if (t > 0 && t < best_t) best_t = t;
-              }
-              if (best_t > 0 && best_t != INFINITY) {
-            printf("#");
-              } else {
-            printf(".");
-              }
-
-            }
-            printf("\n");
-          }
+  return -1;
 }
 
+void generate_scene(Camera* camera, Object** objects, Pixel* buffer){
+  //write these objects to a ppm image
+  double w = camera->width;
+  double h = camera->height;
+  double M = 100;
+  double N = 100;
+  double pixheight = h / M;
+  double pixwidth = w / N;
+  for (int y = 0; y < M; y += 1) {
+    for (int x = 0; x < N; x += 1) {
+      double Ro[3] = {0, 0, 0};
+      // Rd = normalize(P - Ro)
+      double Rd[3] = {
+        0 - (w/2) + pixwidth * (x + 0.5),
+        0 - (h/2) + pixheight * (y + 0.5),
+        1
+      };
+      normalize(Rd);
+
+      double best_t = INFINITY;
+      for (int i=0; objects[i] != 0; i += 1) {
+        double t = 0;
+
+        switch(objects[i]->type) {
+        case 0:
+          t = sphere_intersection(Ro, Rd, objects[i]->position, objects[i]->sphere.radius);
+          break;
+        case 1:
+          t = plane_intersection(Ro, Rd, objects[i]->position, objects[i]->plane.normal);
+          break;
+        default:
+          // Horrible error
+          exit(1);
+        }
+        if (t > 0 && t < best_t) {
+          best_t = t;
+          int position = (M-(y+1))*N+x;
+          buffer[position].r = (unsigned char) 255*objects[i]->color[0];
+          buffer[position].g = (unsigned char) 255*objects[i]->color[1];
+          buffer[position].b = (unsigned char) 255*objects[i]->color[2];
+        }
+        if (best_t > 0 && best_t != INFINITY) {
+
+        } 
+        else {
+          int position = (M-(y+1))*N+x;
+          buffer[position].r = 0;
+          buffer[position].g = 0;
+          buffer[position].b = 0;
+        }
+      }
+    }
+    printf("\n");  
+  } 
+}
+
+void write_p3(Pixel *buffer, FILE *output_file, int width, int height, int max_color){
+  fprintf(output_file, "P3\n%d %d\n%d\n", width, height, max_color);
+  int current_width = 1;
+  for(int i = 0; i < width*height; i++){
+    fprintf(output_file, "%d %d %d ", buffer[i].r, buffer[i].g, buffer[i].b);
+    if(current_width >= 70%12){ //ppm line length = 70, max characters to pixels = 12.
+      fprintf(output_file, "\n");
+      current_width = 1;
+    }
+    else{
+      current_width++;
+    }
+  }
+}
