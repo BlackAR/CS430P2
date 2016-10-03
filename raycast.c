@@ -11,6 +11,8 @@
 #include <math.h>
 #include <string.h>
 #include <ctype.h>
+
+//#define DEBUG 1 //uncomment to see print statements   
 //STRUCTURES
 // Plymorphism in C
 typedef struct Object{
@@ -35,6 +37,7 @@ typedef struct Camera{
 typedef struct Pixel{
   unsigned char r, b, g;
 }Pixel;
+
 //PROTOTYPE DECLARATIONS
 
 int next_c(FILE* json);
@@ -57,24 +60,72 @@ void normalize(double* v);
 
 double sphere_intersection(double* Ro, double* Rd, double* C, double r);
 
-void generate_scene(Camera* camera, Object** objects, Pixel* buffer);
+double plane_intersection(double* Ro, double* Rd, double* P, double* N);
+
+void generate_scene(Camera* camera, Object** objects, Pixel* buffer, int width, int height);
 
 void write_p3(Pixel *buffer, FILE *output_file, int width, int height, int max_color);
 
+//Global variable for tracking during reading of JSON file, to report errors.
 int line = 1;
 
+//FUNCTIONS
+
 int main(int argc, char *argv[]) {
-    Object **objects;
-    objects = malloc(sizeof(Object*)*128);
-    Camera *camera;
-    camera = (Camera *)malloc(sizeof(Camera));
-    Pixel *buffer; 
-    buffer = (Pixel *)malloc(100*100*sizeof(Pixel));
-    read_scene(argv[1], camera, objects);
-    generate_scene(camera, objects, buffer);
-    FILE* output_file = fopen("temp.ppm", "w");
-    write_p3(buffer, output_file, 100, 100, 255);
-    return EXIT_SUCCESS;
+  //ensures the correct number are passed in
+  #ifdef DEBUG
+    printf("Checking arguments...\n");
+  #endif
+  if (argc != 5){
+    fprintf(stderr, "Error: Insufficient Arguments. Arguments provided: %d.\n", argc);
+  }
+  #ifdef DEBUG
+    printf("Getting width and height...\n");
+  #endif
+  int width = atoi(argv[1]);
+  int height = atoi(argv[2]);
+  //check for positive width
+  if (width <= 0){
+    fprintf(stderr, "Error: Non-positive width provided.\n");
+  }
+  //check for positive height
+  if (height <= 0){
+    fprintf(stderr, "Error: Non-positive height provided.\n");
+  }
+  //create array of objects
+  #ifdef DEBUG
+    printf("Allocating memory...\n");
+  #endif
+  Object **objects;
+  objects = malloc(sizeof(Object*)*128);
+  //create camera object
+  Camera *camera;
+  camera = (Camera *)malloc(sizeof(Camera));
+  //create buffer for image
+  Pixel *buffer; 
+  buffer = (Pixel *)malloc(width*height*sizeof(Pixel));
+  #ifdef DEBUG
+    printf("Reading scene...\n");
+  #endif
+  read_scene(argv[3], camera, objects);
+  #ifdef DEBUG
+    printf("Generating scene...\n");
+  #endif
+  generate_scene(camera, objects, buffer, width, height);
+  #ifdef DEBUG
+    printf("Opening output file...\n");
+  #endif
+  FILE* output_file = fopen(argv[4], "w");
+  //error handling for failure to open output file
+  if (output_file == NULL){
+    fprintf(stderr, "Error: Unexpectedable to open output file.\n");
+    exit(1);
+  }
+  #ifdef DEBUG
+    printf("Creating image...\n");
+  #endif
+  write_p3(buffer, output_file, width, height, 255);
+  return EXIT_SUCCESS;
 }
 
 int next_c(FILE* json) {
@@ -149,8 +200,11 @@ char* next_string(FILE* json) {
 
 double next_number(FILE* json) {
   double value;
-  fscanf(json, "%lf", &value);
-  // Error check this..
+  int count = fscanf(json, "%lf", &value);
+  if (count != 1){
+    fprintf(stderr, "Error: Failed to read number on line %d.\n", line);
+    exit(1);
+  }
   return value;
 }
 
@@ -222,12 +276,20 @@ void read_scene(char* filename, Camera* camera, Object** objects) {
       } 
       else if (strcmp(value, "sphere") == 0) {
         current_item++;
+        if(current_item>127){
+          fprintf(stderr, "Error: Too many objects in JSON. Program can only handle 128 objects.\n");
+          exit(1);
+        }
         objects[current_item] = malloc(sizeof(Object));
         objects[current_item]->type = 0;
         current_type = 1;
       } 
       else if (strcmp(value, "plane") == 0) {
         current_item++;
+        if(current_item>127){
+          fprintf(stderr, "Error: Too many objects in JSON. Program can only handle 128 objects.\n");
+          exit(1);
+        }
         objects[current_item] = malloc(sizeof(Object));
         objects[current_item]->type = 1;
         current_type = 2;
@@ -236,7 +298,6 @@ void read_scene(char* filename, Camera* camera, Object** objects) {
         fprintf(stderr, "Error: Unknown type, \"%s\", on line number %d.\n", value, line);
         exit(1);
       }
-
       skip_ws(json);
 
       while (1) {
@@ -437,6 +498,8 @@ double plane_intersection(double* Ro, double* Rd, double* P, double* N) {
   // Step 2. Parameterize the equation with a center point
   // if needed
   //
+  // Since N = [A, B, C]
+  //
   // Nx(x-Px) + Ny(y-Py) + Nz(z-Pz) = 0
   //
   // Step 3. Substitute the eq for a ray into our object
@@ -465,21 +528,19 @@ double plane_intersection(double* Ro, double* Rd, double* P, double* N) {
   return -1;
 }
 
-void generate_scene(Camera* camera, Object** objects, Pixel* buffer){
+void generate_scene(Camera* camera, Object** objects, Pixel* buffer, int width, int height){
   //write these objects to a ppm image
-  double w = camera->width;
-  double h = camera->height;
-  double M = 100;
-  double N = 100;
-  double pixheight = h / M;
-  double pixwidth = w / N;
-  for (int y = 0; y < M; y += 1) {
-    for (int x = 0; x < N; x += 1) {
+  double camera_width = camera->width;
+  double camera_height = camera->height;
+  double pixheight = camera_height / height;
+  double pixwidth = camera_width / width;
+  for (int y = 0; y < height; y += 1) {
+    for (int x = 0; x < width; x += 1) {
       double Ro[3] = {0, 0, 0};
       // Rd = normalize(P - Ro)
       double Rd[3] = {
-        0 - (w/2) + pixwidth * (x + 0.5),
-        0 - (h/2) + pixheight * (y + 0.5),
+        0 - (camera_width/2) + pixwidth * (x + 0.5),
+        0 - (camera_height/2) + pixheight * (y + 0.5),
         1
       };
       normalize(Rd);
@@ -501,7 +562,7 @@ void generate_scene(Camera* camera, Object** objects, Pixel* buffer){
         }
         if (t > 0 && t < best_t) {
           best_t = t;
-          int position = (M-(y+1))*N+x;
+          int position = (height-(y+1))*width+x;
           buffer[position].r = (unsigned char) 255*objects[i]->color[0];
           buffer[position].g = (unsigned char) 255*objects[i]->color[1];
           buffer[position].b = (unsigned char) 255*objects[i]->color[2];
@@ -510,14 +571,13 @@ void generate_scene(Camera* camera, Object** objects, Pixel* buffer){
 
         } 
         else {
-          int position = (M-(y+1))*N+x;
+          int position = (height-(y+1))*width+x;
           buffer[position].r = 0;
           buffer[position].g = 0;
           buffer[position].b = 0;
         }
       }
     }
-    printf("\n");  
   } 
 }
 
