@@ -521,7 +521,8 @@ double plane_intersection(double* Ro, double* Rd, double* P, double* N) {
   //
   // t = (NxPx + NyPy + NzPz - NxRox - NyRoy - NzRoz)/(Nx*Rdx + Ny*Rdy + Nz*Rdz) 
   //
-  
+  //normalize the normal vector
+  normalize(N);
   double t = (N[0]*P[0] + N[1]*P[1] + N[2]*P[2] - N[0]*Ro[0] - N[1]*Ro[1] - N[2]*Ro[2])/(N[0]*Rd[0] + N[1]*Rd[1] + N[2]*Rd[2]); 
   if (t > 0) return t;
 
